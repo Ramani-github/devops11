@@ -1,0 +1,9 @@
+program to add two numbers
+
+num1=10
+
+num2=20
+
+sum = num1+num2
+
+printf("sum of {0} and {1} numbers is {2}".format(num1,num2,sum))
