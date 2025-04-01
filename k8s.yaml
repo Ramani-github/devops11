@@ -1,0 +1,967 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: accounting
+  labels:
+    app: accounting
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: accounting
+  template:
+    metadata:
+      labels:
+        app: accounting
+    spec:
+      containers:
+        - name: accounting
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-accounting
+          resources:
+            limits:
+              memory: 120Mi
+          env:
+            - name: KAFKA_ADDR
+              value: "${KAFKA_ADDR}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_HTTP}"
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_SERVICE_NAME
+              value: "accounting"
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: cache-volume
+              mountPath: /cache
+      restartPolicy: Always
+      volumes:
+        - name: cache-volume
+          emptyDir: {}
+      initContainers:
+        - name: wait-for-kafka
+          image: busybox
+          command: ['sh', '-c', 'until nc -z kafka 9092; do echo waiting for kafka; sleep 2; done;']
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: accounting
+spec:
+  selector:
+    app: accounting
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+#ad
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ad-service
+  labels:
+    app: ad-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ad-service
+  template:
+    metadata:
+      labels:
+        app: ad-service
+    spec:
+      containers:
+        - name: ad-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-ad
+          resources:
+            limits:
+              memory: 300Mi
+          env:
+            - name: AD_PORT
+              value: "${AD_PORT}"
+            - name: FLAGD_HOST
+              value: "${FLAGD_HOST}"
+            - name: FLAGD_PORT
+              value: "${FLAGD_PORT}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_HTTP}"
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_LOGS_EXPORTER
+              value: "otlp"
+            - name: OTEL_SERVICE_NAME
+              value: "ad"
+            - name: _JAVA_OPTIONS
+              value: "${_JAVA_OPTIONS}"
+          ports:
+            - containerPort: ${AD_PORT}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${AD_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${AD_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+        - name: wait-for-flagd
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${FLAGD_HOST} ${FLAGD_PORT}; do echo waiting for flagd; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ad-service
+spec:
+  selector:
+    app: ad-service
+  ports:
+    - protocol: TCP
+      port: ${AD_PORT}
+      targetPort: ${AD_PORT}
+#cartservices
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cart-service
+  labels:
+    app: cart-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cart-service
+  template:
+    metadata:
+      labels:
+        app: cart-service
+    spec:
+      containers:
+        - name: cart-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-cart
+          resources:
+            limits:
+              memory: 160Mi
+          env:
+            - name: CART_PORT
+              value: "${CART_PORT}"
+            - name: FLAGD_HOST
+              value: "${FLAGD_HOST}"
+            - name: FLAGD_PORT
+              value: "${FLAGD_PORT}"
+            - name: VALKEY_ADDR
+              value: "${VALKEY_ADDR}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_SERVICE_NAME
+              value: "cart"
+            - name: ASPNETCORE_URLS
+              value: "http://*:${CART_PORT}"
+          ports:
+            - containerPort: ${CART_PORT}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${CART_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${CART_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-valkey-cart
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${VALKEY_ADDR} ${CART_PORT}; do echo waiting for valkey-cart; sleep 2; done;']
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+        - name: wait-for-flagd
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${FLAGD_HOST} ${FLAGD_PORT}; do echo waiting for flagd; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart-service
+spec:
+  selector:
+    app: cart-service
+  ports:
+    - protocol: TCP
+      port: ${CART_PORT}
+      targetPort: ${CART_PORT}
+#Checkoutservice
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-service
+  labels:
+    app: checkout-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout-service
+  template:
+    metadata:
+      labels:
+        app: checkout-service
+    spec:
+      containers:
+        - name: checkout-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-checkout
+          resources:
+            limits:
+              memory: 20Mi
+          env:
+            - name: CHECKOUT_PORT
+              value: "${CHECKOUT_PORT}"
+            - name: FLAGD_HOST
+              value: "${FLAGD_HOST}"
+            - name: FLAGD_PORT
+              value: "${FLAGD_PORT}"
+            - name: CART_ADDR
+              value: "${CART_ADDR}"
+            - name: CURRENCY_ADDR
+              value: "${CURRENCY_ADDR}"
+            - name: EMAIL_ADDR
+              value: "${EMAIL_ADDR}"
+            - name: PAYMENT_ADDR
+              value: "${PAYMENT_ADDR}"
+            - name: PRODUCT_CATALOG_ADDR
+              value: "${PRODUCT_CATALOG_ADDR}"
+            - name: SHIPPING_ADDR
+              value: "${SHIPPING_ADDR}"
+            - name: KAFKA_ADDR
+              value: "${KAFKA_ADDR}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_SERVICE_NAME
+              value: "checkout"
+          ports:
+            - containerPort: ${CHECKOUT_PORT}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${CHECKOUT_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${CHECKOUT_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-cart
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${CART_ADDR} ${CHECKOUT_PORT}; do echo waiting for cart; sleep 2; done;']
+        - name: wait-for-currency
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${CURRENCY_ADDR} ${CHECKOUT_PORT}; do echo waiting for currency; sleep 2; done;']
+        - name: wait-for-email
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${EMAIL_ADDR} ${CHECKOUT_PORT}; do echo waiting for email; sleep 2; done;']
+        - name: wait-for-payment
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${PAYMENT_ADDR} ${CHECKOUT_PORT}; do echo waiting for payment; sleep 2; done;']
+        - name: wait-for-product-catalog
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${PRODUCT_CATALOG_ADDR} ${CHECKOUT_PORT}; do echo waiting for product catalog; sleep 2; done;']
+        - name: wait-for-shipping
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${SHIPPING_ADDR} ${CHECKOUT_PORT}; do echo waiting for shipping; sleep 2; done;']
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+        - name: wait-for-kafka
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${KAFKA_ADDR} 9092; do echo waiting for kafka; sleep 2; done;']
+        - name: wait-for-flagd
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${FLAGD_HOST} ${FLAGD_PORT}; do echo waiting for flagd; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout-service
+spec:
+  selector:
+    app: checkout-service
+  ports:
+    - protocol: TCP
+      port: ${CHECKOUT_PORT}
+      targetPort: ${CHECKOUT_PORT}
+#currency service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: currency-service
+  labels:
+    app: currency-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: currency-service
+  template:
+    metadata:
+      labels:
+        app: currency-service
+    spec:
+      containers:
+        - name: currency-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-currency
+          resources:
+            limits:
+              memory: 20Mi
+          env:
+            - name: CURRENCY_PORT
+              value: "${CURRENCY_PORT}"
+            - name: VERSION
+              value: "${IMAGE_VERSION}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES},service.name=currency"
+          ports:
+            - containerPort: ${CURRENCY_PORT}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${CURRENCY_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${CURRENCY_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: currency-service
+spec:
+  selector:
+    app: currency-service
+  ports:
+    - protocol: TCP
+      port: ${CURRENCY_PORT}
+      targetPort: ${CURRENCY_PORT}
+
+#Email-service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email-service
+  labels:
+    app: email-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: email-service
+  template:
+    metadata:
+      labels:
+        app: email-service
+    spec:
+      containers:
+        - name: email-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-email
+          resources:
+            limits:
+              memory: 100Mi
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: EMAIL_PORT
+              value: "${EMAIL_PORT}"
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: "http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_HTTP}/v1/traces"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_SERVICE_NAME
+              value: "email"
+          ports:
+            - containerPort: ${EMAIL_PORT}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${EMAIL_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${EMAIL_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: email-service
+spec:
+  selector:
+    app: email-service
+  ports:
+    - protocol: TCP
+      port: ${EMAIL_PORT}
+      targetPort: ${EMAIL_PORT}
+
+#Fraud Detection service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection-service
+  labels:
+    app: fraud-detection-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fraud-detection-service
+  template:
+    metadata:
+      labels:
+        app: fraud-detection-service
+    spec:
+      containers:
+        - name: fraud-detection-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-fraud-detection
+          resources:
+            limits:
+              memory: 300Mi
+          env:
+            - name: FLAGD_HOST
+              value: "${FLAGD_HOST}"
+            - name: FLAGD_PORT
+              value: "${FLAGD_PORT}"
+            - name: KAFKA_ADDR
+              value: "${KAFKA_ADDR}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_HTTP}"
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE}"
+            - name: OTEL_INSTRUMENTATION_KAFKA_EXPERIMENTAL_SPAN_ATTRIBUTES
+              value: "true"
+            - name: OTEL_INSTRUMENTATION_MESSAGING_EXPERIMENTAL_RECEIVE_TELEMETRY_ENABLED
+              value: "true"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_SERVICE_NAME
+              value: "fraud-detection"
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+        - name: wait-for-kafka
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${KAFKA_ADDR} 9092; do echo waiting for kafka; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-detection-service
+spec:
+  selector:
+    app: fraud-detection-service
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+
+#frontend
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-service
+  labels:
+    app: frontend-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend-service
+  template:
+    metadata:
+      labels:
+        app: frontend-service
+    spec:
+      containers:
+        - name: frontend-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-frontend
+          resources:
+            limits:
+              memory: 250Mi
+          env:
+            - name: PORT
+              value: "${FRONTEND_PORT}"
+            - name: FRONTEND_ADDR
+              value: "${FRONTEND_ADDR}"
+            - name: AD_ADDR
+              value: "${AD_ADDR}"
+            - name: CART_ADDR
+              value: "${CART_ADDR}"
+            - name: CHECKOUT_ADDR
+              value: "${CHECKOUT_ADDR}"
+            - name: CURRENCY_ADDR
+              value: "${CURRENCY_ADDR}"
+            - name: PRODUCT_CATALOG_ADDR
+              value: "${PRODUCT_CATALOG_ADDR}"
+            - name: RECOMMENDATION_ADDR
+              value: "${RECOMMENDATION_ADDR}"
+            - name: SHIPPING_ADDR
+              value: "${SHIPPING_ADDR}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: ENV_PLATFORM
+              value: "${ENV_PLATFORM}"
+            - name: OTEL_SERVICE_NAME
+              value: "frontend"
+            - name: PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: "${PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT}"
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE}"
+            - name: WEB_OTEL_SERVICE_NAME
+              value: "frontend-web"
+            - name: OTEL_COLLECTOR_HOST
+              value: "${OTEL_COLLECTOR_HOST}"
+            - name: FLAGD_HOST
+              value: "${FLAGD_HOST}"
+            - name: FLAGD_PORT
+              value: "${FLAGD_PORT}"
+          ports:
+            - containerPort: ${FRONTEND_PORT}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${FRONTEND_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${FRONTEND_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${AD_ADDR} 80; do echo waiting for ad service; sleep 2; done;']
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${CART_ADDR} 80; do echo waiting for cart service; sleep 2; done;']
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${CHECKOUT_ADDR} 80; do echo waiting for checkout service; sleep 2; done;']
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${CURRENCY_ADDR} 80; do echo waiting for currency service; sleep 2; done;']
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${PRODUCT_CATALOG_ADDR} 80; do echo waiting for product-catalog service; sleep 2; done;']
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${RECOMMENDATION_ADDR} 80; do echo waiting for recommendation service; sleep 2; done;']
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${SHIPPING_ADDR} 80; do echo waiting for shipping service; sleep 2; done;']
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${IMAGE_PROVIDER_ADDR} 80; do echo waiting for image-provider service; sleep 2; done;']
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+        - name: wait-for-flagd
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${FLAGD_HOST} ${FLAGD_PORT}; do echo waiting for flagd; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: frontend-service
+  ports:
+    - protocol: TCP
+      port: ${FRONTEND_PORT}
+      targetPort: ${FRONTEND_PORT}
+
+#paymentservcie
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  labels:
+    app: payment-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+        - name: payment-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-payment
+          resources:
+            limits:
+              memory: 120Mi
+          env:
+            - name: PAYMENT_PORT
+              value: "${PAYMENT_PORT}"
+            - name: FLAGD_HOST
+              value: "${FLAGD_HOST}"
+            - name: FLAGD_PORT
+              value: "${FLAGD_PORT}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_SERVICE_NAME
+              value: "payment"
+          ports:
+            - containerPort: ${PAYMENT_PORT}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${PAYMENT_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${PAYMENT_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${FLAGD_HOST} ${FLAGD_PORT}; do echo waiting for flagd; sleep 2; done;']
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - protocol: TCP
+      port: ${PAYMENT_PORT}
+      targetPort: ${PAYMENT_PORT}
+#productcatalogservice
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-catalog-service
+  labels:
+    app: product-catalog-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-catalog-service
+  template:
+    metadata:
+      labels:
+        app: product-catalog-service
+    spec:
+      containers:
+        - name: product-catalog-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-product-catalog
+          resources:
+            limits:
+              memory: 20Mi
+          env:
+            - name: PRODUCT_CATALOG_PORT
+              value: "${PRODUCT_CATALOG_PORT}"
+            - name: PRODUCT_CATALOG_RELOAD_INTERVAL
+              value: "${PRODUCT_CATALOG_RELOAD_INTERVAL}"
+            - name: FLAGD_HOST
+              value: "${FLAGD_HOST}"
+            - name: FLAGD_PORT
+              value: "${FLAGD_PORT}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_SERVICE_NAME
+              value: "product-catalog"
+          ports:
+            - containerPort: ${PRODUCT_CATALOG_PORT}
+          volumeMounts:
+            - name: product-catalog-data
+              mountPath: /usr/src/app/products
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${PRODUCT_CATALOG_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${PRODUCT_CATALOG_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${FLAGD_HOST} ${FLAGD_PORT}; do echo waiting for flagd; sleep 2; done;']
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+      volumes:
+        - name: product-catalog-data
+          hostPath:
+            path: ./src/product-catalog/products
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-catalog-service
+spec:
+  selector:
+    app: product-catalog-service
+  ports:
+    - protocol: TCP
+      port: ${PRODUCT_CATALOG_PORT}
+      targetPort: ${PRODUCT_CATALOG_PORT}
+#quote
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quote-service
+  labels:
+    app: quote-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quote-service
+  template:
+    metadata:
+      labels:
+        app: quote-service
+    spec:
+      containers:
+        - name: quote-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-quote
+          resources:
+            limits:
+              memory: 40Mi
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_HTTP}"
+            - name: OTEL_PHP_AUTOLOAD_ENABLED
+              value: "true"
+            - name: QUOTE_PORT
+              value: "${QUOTE_PORT}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_SERVICE_NAME
+              value: "quote"
+            - name: OTEL_PHP_INTERNAL_METRICS_ENABLED
+              value: "true"
+          ports:
+            - containerPort: ${QUOTE_PORT}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${QUOTE_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${QUOTE_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quote-service
+spec:
+  selector:
+    app: quote-service
+  ports:
+    - protocol: TCP
+      port: ${QUOTE_PORT}
+      targetPort: ${QUOTE_PORT}
+#recommendationservices
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendation-service
+  labels:
+    app: recommendation-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recommendation-service
+  template:
+    metadata:
+      labels:
+        app: recommendation-service
+    spec:
+      containers:
+        - name: recommendation-service
+          image: ${IMAGE_NAME}:${DEMO_VERSION}-recommendation
+          resources:
+            limits:
+              memory: 500Mi
+          env:
+            - name: RECOMMENDATION_PORT
+              value: "${RECOMMENDATION_PORT}"
+            - name: PRODUCT_CATALOG_ADDR
+              value: "${PRODUCT_CATALOG_ADDR}"
+            - name: FLAGD_HOST
+              value: "${FLAGD_HOST}"
+            - name: FLAGD_PORT
+              value: "${FLAGD_PORT}"
+            - name: OTEL_PYTHON_LOG_CORRELATION
+              value: "true"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "${OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "${OTEL_RESOURCE_ATTRIBUTES}"
+            - name: OTEL_SERVICE_NAME
+              value: "recommendation"
+            - name: PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION
+              value: "python"
+          ports:
+            - containerPort: ${RECOMMENDATION_PORT}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${RECOMMENDATION_PORT}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ${RECOMMENDATION_PORT}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      restartPolicy: Always
+      initContainers:
+        - name: wait-for-dependencies
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${PRODUCT_CATALOG_ADDR} ${PRODUCT_CATALOG_PORT}; do echo waiting for product-catalog; sleep 2; done;']
+        - name: wait-for-otel-collector
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${OTEL_COLLECTOR_HOST} ${OTEL_COLLECTOR_PORT_HTTP}; do echo waiting for otel-collector; sleep 2; done;']
+        - name: wait-for-flagd
+          image: busybox
+          command: ['sh', '-c', 'until nc -z ${FLAGD_HOST} ${FLAGD_PORT}; do echo waiting for flagd; sleep 2; done;']
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendation-service
+spec:
+  selector:
+    app: recommendation-service
+  ports:
+    - protocol: TCP
+      port: ${RECOMMENDATION_PORT}
+      targetPort: ${RECOMMENDATION_PORT}
+
+
